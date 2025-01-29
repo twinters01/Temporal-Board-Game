@@ -1,7 +1,10 @@
-import { condition, defineSignal, setHandler } from '@temporalio/workflow';
-import {greet} from './activities';
+import { condition, defineQuery, defineSignal, proxyActivities, setHandler } from '@temporalio/workflow';
+import * as activities from './activities';
 
-const playerRollSignal = defineSignal<[number, number]>('playerRoll')
+const { greet, rollDice } = proxyActivities<typeof activities>({startToCloseTimeout: '30 seconds'})
+
+const playerRollSignal = defineSignal<[number, number]>('playerRoll');
+const getStatusQuery = defineQuery<object>("getStatus");
 
 export async function helloWorld()
 {
@@ -10,18 +13,29 @@ export async function helloWorld()
 
 export async function game()
 {
-    var goal = 30;
+    var roll: number | undefined = undefined;
+    var goal = 10;
     var players = [0, 0];
     var currentPlayer = 0;
-    setHandler(playerRollSignal, (player) => {
+    setHandler(playerRollSignal, async (player) => {
         if(player == currentPlayer)
         {
-            players[player] += 30;
-            currentPlayer = currentPlayer == 0 ? 1 : 0;
+            roll = await rollDice();
         }
     });
+    setHandler(getStatusQuery, () => {
+        return {
+            goal, players, currentPlayer
+        }
+    })
 
-    await condition(() => players[0] >= goal || players[1] >= goal);
+    while(players[0] < goal && players[1] < goal)
+    {
+        roll = undefined;
+        await condition(() => roll != undefined);
+        players[currentPlayer] += roll!;
+        currentPlayer = currentPlayer == 0 ? 1 : 0;
+    }
 
     if(players[0] >= goal)
         return 0;
