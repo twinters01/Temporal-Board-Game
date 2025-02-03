@@ -1,44 +1,42 @@
 import { condition, defineQuery, defineSignal, proxyActivities, setHandler } from '@temporalio/workflow';
 import * as activities from './activities';
+import { getSpaceActivities } from './activities/spaceActivityHelper';
 
-const { greet, rollDice } = proxyActivities<typeof activities>({startToCloseTimeout: '30 seconds'})
+const { rollDice, generateGame } = proxyActivities<typeof activities>({startToCloseTimeout: '30 seconds'})
 
 const playerRollSignal = defineSignal<[number, number]>('playerRoll');
 const getStatusQuery = defineQuery<object>("getStatus");
 
-export async function helloWorld()
-{
-    return { greeting: await greet() };
-}
-
 export async function game()
 {
     var roll: number | undefined = undefined;
-    var goal = 10;
-    var players = [0, 0];
-    var currentPlayer = 0;
+    var game = await generateGame(["Player 1", "Player 2", "Player 3", "Player 4"]);
+    const spaceActivities = getSpaceActivities();
+
     setHandler(playerRollSignal, async (player) => {
-        if(player == currentPlayer)
+        if(player == game.currentPlayer.number)
         {
             roll = await rollDice();
         }
     });
-    setHandler(getStatusQuery, () => {
-        return {
-            goal, players, currentPlayer
-        }
-    })
+    setHandler(getStatusQuery, () => game)
 
-    while(players[0] < goal && players[1] < goal)
+    while(true)
     {
         roll = undefined;
         await condition(() => roll != undefined);
-        players[currentPlayer] += roll!;
-        currentPlayer = currentPlayer == 0 ? 1 : 0;
-    }
+        for(let i = 0; i < roll!; i++)
+        {
+            console.log("moving")
+            const space = game.currentPlayer.currentSpace;
+            const nextSpace = space.nextSpaces[0];
 
-    if(players[0] >= goal)
-        return 0;
-    else if(players[1] >= goal)
-        return 1;
+            game.currentPlayer.currentSpace = game.map[nextSpace];
+        }
+        if(spaceActivities.has(game.currentPlayer.currentSpace.type))
+            spaceActivities.get(game.currentPlayer.currentSpace.type)!(game);
+        
+        game.currentPlayer = game.currentPlayer.number == game.players.length - 1 ?
+                        game.players[0] : game.players[game.currentPlayer.number + 1]
+    }
 }
